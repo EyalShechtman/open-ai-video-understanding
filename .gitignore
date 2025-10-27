@@ -1,5 +1,9 @@
 /target
+backend/target/
+frontend/.next/
+frontend/node_modules/
+frontend/out/
 .env
-docs/
 .DS_Store
+docs/
 .cursor/

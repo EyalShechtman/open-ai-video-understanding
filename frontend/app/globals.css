@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light dark;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  @apply bg-white text-black dark:bg-black dark:text-white;
+}
+
+.container {
+  @apply mx-auto max-w-4xl px-4;
+}
+
