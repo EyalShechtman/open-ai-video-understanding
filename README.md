@@ -1,6 +1,6 @@
-# Video Understanding App
+# OpenAI Video Understanding
 
-Analyze videos with AI - upload a video and get frame-by-frame descriptions powered by Google Gemini.
+AI-powered video analysis platform with upload, search, and analysis capabilities for intelligent video understanding.
 
 ## Quick Start
 

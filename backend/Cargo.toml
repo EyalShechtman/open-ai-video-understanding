@@ -17,6 +17,6 @@ tracing = "0.1"
 video-rs = { version = "0.10", features = ["ndarray"] }
 image = "0.25"
 anyhow = "1.0"
-tower-http = { version = "0.6", features = ["cors"] }
+tower-http = { version = "0.6", features = ["cors", "fs"] }
 uuid = { version = "1.0", features = ["v4"] }
 chrono = "0.4"

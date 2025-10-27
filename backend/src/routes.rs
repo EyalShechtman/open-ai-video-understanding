@@ -1,6 +1,7 @@
 use axum::{routing::{get, post}, Router, extract::{Json, DefaultBodyLimit}};
 use crate::handlers;
 use tower_http::cors::{CorsLayer, Any};
+use tower_http::services::ServeDir;
 
 /// Creates and returns the main router with all routes
 pub fn create_router() -> Router {
@@ -20,6 +21,8 @@ pub fn create_router() -> Router {
                 handlers::process_video(Json(req)).await
             }),
         )
+        // Serve frame images from the local data directory for thumbnails
+        .nest_service("/data", ServeDir::new("data"))
         .layer(DefaultBodyLimit::max(500 * 1024 * 1024)) // 500 MB limit
         .layer(cors)
 }

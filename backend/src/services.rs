@@ -234,7 +234,7 @@ pub async fn process_video(video_path: impl Into<PathBuf>) -> Result<Vec<FrameRe
 
     info!("Sliding-window comparisons complete: processed_pairs={}", processed_pairs);
     info!("Processing complete: {} records", records.len());
-
+    println!("{}", serde_json::to_string_pretty(&records)?);
     Ok(records)
 }
 

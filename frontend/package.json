@@ -13,7 +13,9 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "@pinecone-database/pinecone": "^3.0.1",
-    "openai": "^4.52.0"
+    "@google/generative-ai": "^0.12.0",
+    "lucide-react": "^0.453.0",
+    "framer-motion": "^11.0.14"
   },
   "devDependencies": {
     "@types/node": "^20.11.30",

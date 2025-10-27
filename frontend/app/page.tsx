@@ -81,11 +81,44 @@ export default function Page() {
       });
 
       const processData: ProcessVideoResponse = await processResponse.json();
-      
+
       if (processData.status === "ok") {
-        setSubmitState("success");
-        setFeedback(`Processing complete! Analyzed ${processData.records?.length || 0} frames.`);
         setResults(processData);
+        const frameCount = processData.records?.length || 0;
+        setFeedback(`Processing complete! Analyzed ${frameCount} frames. Indexing...`);
+
+        // Step 3: Ingest records into Pinecone via Next API (RAG)
+        if (frameCount > 0) {
+          try {
+            const ingestResponse = await fetch("/api/RAG", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "ingest_final",
+                videoFile: files[0]?.name ?? "video",
+                videoId: 1,
+                records: processData.records,
+                summary: processData.summary ?? undefined,
+              }),
+            });
+            const ingestData = await ingestResponse.json();
+            if (ingestData?.status === "ok") {
+              setFeedback(`Done! Indexed ${ingestData.upserted ?? frameCount} vectors to Pinecone.`);
+              setSubmitState("success");
+            } else {
+              console.error("Ingest error:", ingestData);
+              setFeedback("Frames processed but indexing failed. Check server logs.");
+              setSubmitState("error");
+            }
+          } catch (e) {
+            console.error(e);
+            setFeedback("Frames processed but indexing failed. Check server logs.");
+            setSubmitState("error");
+          }
+        } else {
+          setFeedback("Processing complete, no frames to index.");
+          setSubmitState("success");
+        }
       } else {
         throw new Error(processData.message || "Processing failed");
       }
