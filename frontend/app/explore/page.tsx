@@ -1,6 +1,8 @@
 "use client";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
+import { Search, Send } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 
 type PCIndex = { name: string };
 type Namespace = string;
@@ -27,6 +29,198 @@ function glassPanel(classes = "") {
     "rounded-2xl border border-white/20 bg-white/10 dark:bg-black/20 backdrop-blur-xl shadow-sm",
     classes,
   ].join(" ");
+}
+
+// Search Input Component
+function SearchInput({ 
+  value, 
+  onChange, 
+  onSubmit, 
+  isLoading 
+}: { 
+  value: string; 
+  onChange: (value: string) => void; 
+  onSubmit: () => void;
+  isLoading: boolean;
+}) {
+  const [isActive, setIsActive] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        wrapperRef.current &&
+        !wrapperRef.current.contains(event.target as Node)
+      ) {
+        if (!value) setIsActive(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [value]);
+
+  const handleActivate = () => setIsActive(true);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      onSubmit();
+    }
+  };
+
+  return (
+    <div className="w-full flex justify-center" ref={wrapperRef}>
+      <motion.div
+        className="w-full max-w-3xl bg-white dark:bg-gray-900 rounded-3xl shadow-lg"
+        animate={{
+          boxShadow: isActive || value 
+            ? "0 8px 32px 0 rgba(0,0,0,0.16)" 
+            : "0 2px 8px 0 rgba(0,0,0,0.08)"
+        }}
+        transition={{ type: "spring", stiffness: 120, damping: 18 }}
+        onClick={handleActivate}
+      >
+        <div className="flex items-center gap-2 p-3">
+          <button
+            className="p-3 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+            title="Search"
+            type="button"
+            tabIndex={-1}
+          >
+            <Search size={20} className="text-gray-600 dark:text-gray-400" />
+          </button>
+
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask a question (e.g., what color was the Jeep?)"
+            className="flex-1 border-0 outline-0 rounded-md py-2 px-2 text-base bg-transparent text-black dark:text-white placeholder-gray-400"
+            onFocus={handleActivate}
+          />
+
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onSubmit();
+            }}
+            disabled={isLoading || !value.trim()}
+            className="flex items-center gap-1 bg-black hover:bg-zinc-700 dark:bg-white dark:hover:bg-gray-200 text-white dark:text-black p-3 rounded-full font-medium justify-center disabled:opacity-50 disabled:cursor-not-allowed transition"
+            title="Send"
+            type="button"
+          >
+            {isLoading ? (
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+              >
+                <Search size={18} />
+              </motion.div>
+            ) : (
+              <Send size={18} />
+            )}
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+// Component for expandable description
+function ExpandableDescription({ text, maxWords = 10 }: { text: string; maxWords?: number }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  
+  const words = text.split(' ');
+  const shouldTruncate = words.length > maxWords;
+  const displayText = shouldTruncate && !isExpanded 
+    ? words.slice(0, maxWords).join(' ') + '...'
+    : text;
+
+  if (!shouldTruncate) {
+    return <p className="opacity-90 leading-relaxed text-base">{text}</p>;
+  }
+
+  return (
+    <div>
+      <p className="opacity-90 leading-relaxed text-base">{displayText}</p>
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="mt-3 flex items-center gap-1.5 text-sm opacity-70 hover:opacity-100 transition-opacity"
+      >
+        <span>{isExpanded ? 'Show less' : 'Show more'}</span>
+        <svg
+          className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+// Component for video result card
+function VideoResultCard({ 
+  match, 
+  index, 
+  indexName, 
+  indexToVideoMap,
+  renderVideoPlayer,
+  renderThumb
+}: any) {
+  const meta: any = match.metadata || {};
+  const ts = typeof meta.timestamp === "number" ? meta.timestamp : 0;
+  const tsDisplay = typeof meta.timestamp === "number" ? `${meta.timestamp.toFixed(1)}s` : "";
+  const videoFilename = meta.video_filename;
+  const actualVideoFilename = videoFilename || indexToVideoMap[indexName.toLowerCase()];
+  
+  return (
+    <div className="rounded-xl border border-white/20 bg-white/5 overflow-hidden hover:border-white/30 transition-all duration-200 shadow-lg hover:shadow-xl">
+      {/* Video Section - Make this the dominant element */}
+      <div className="relative">
+        {actualVideoFilename ? (
+          <div className="p-8 pb-6">
+            {renderVideoPlayer(videoFilename, ts)}
+          </div>
+        ) : (
+          <div className="flex items-center justify-center aspect-video bg-black/20 border-b border-white/10">
+            <div className="text-center">
+              {renderThumb(meta.path)}
+              <p className="text-xs opacity-50 mt-2">Video not available</p>
+            </div>
+          </div>
+        )}
+      </div>
+      
+      {/* Info Section - Compact metadata */}
+      <div className="px-8 pb-6 pt-2 space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center px-4 py-2 rounded-full text-base font-semibold bg-white/10 border border-white/20">
+            ⏱️ {tsDisplay}
+          </span>
+          {typeof match.score === "number" && (
+            <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-white/10 border border-white/20">
+              Score: {match.score.toFixed(3)}
+            </span>
+          )}
+          {meta.frame_id && (
+            <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm bg-white/10 border border-white/20">
+              Frame {meta.frame_id}
+            </span>
+          )}
+        </div>
+        
+        <div>
+          <h4 className="text-xs font-semibold mb-2 opacity-50 uppercase tracking-wide">Description</h4>
+          <ExpandableDescription text={meta.description || "No description available"} maxWords={10} />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function ExplorePage() {
@@ -229,7 +423,7 @@ export default function ExplorePage() {
   };
 
   return (
-    <main className="container py-10 max-w-6xl mx-auto px-4">
+    <main className="w-full py-10 px-12">
       <h1 className="text-3xl font-bold mb-6">Explore</h1>
 
       {/* Controls */}
@@ -346,84 +540,37 @@ export default function ExplorePage() {
 
       {activeTab === "search" && (
         <section className={glassPanel("p-6 space-y-6")}>          
-          <h2 className="text-xl font-semibold">Search</h2>
-          <form onSubmit={runSearch} className="flex items-center gap-3">
-            <input
-              value={searchQ}
-              onChange={(e) => setSearchQ(e.target.value)}
-              placeholder="Ask a question (e.g., what color was the Jeep?)"
-              className="flex-1 bg-white/10 border-2 border-white/30 rounded-lg px-4 py-3 text-black dark:text-white placeholder-gray-600 dark:placeholder-gray-400 focus:bg-white/20 focus:border-white/50 focus:ring-2 focus:ring-white/20 transition-all duration-200"
-            />
-            <button
-              type="submit"
-              disabled={searchLoading}
-              className="px-4 py-2 rounded-md border bg-black text-white dark:bg-white dark:text-black"
-            >
-              {searchLoading ? "Searching..." : "Search"}
-            </button>
-          </form>
+          <div className="text-center space-y-2 mb-6">
+            <h2 className="text-3xl font-bold">Moments</h2>
+            <p className="text-sm opacity-60 max-w-2xl mx-auto mt-2">
+              Search for specific scenes, objects, or actions by describing what you're looking for. 
+              For example, try searching for "red Jeep" or "car crash" to find relevant moments.
+            </p>
+          </div>
+          <SearchInput
+            value={searchQ}
+            onChange={setSearchQ}
+            onSubmit={() => {
+              if (searchQ.trim()) {
+                runSearch({ preventDefault: () => {} } as React.FormEvent);
+              }
+            }}
+            isLoading={searchLoading}
+          />
 
           {searchMatches.length > 0 && (
-            <div className="space-y-6">
-              {searchMatches.map((m, i) => {
-                const meta: any = m.metadata || {};
-                const ts = typeof meta.timestamp === "number" ? meta.timestamp : 0;
-                const tsDisplay = typeof meta.timestamp === "number" ? `${meta.timestamp.toFixed(1)}s` : "";
-                const videoFilename = meta.video_filename;
-                // Check if we have a video available (from metadata or fallback mapping)
-                const actualVideoFilename = videoFilename || indexToVideoMap[indexName.toLowerCase()];
-                
-                return (
-                  <div key={`${m.id}-${i}`} className="rounded-xl border border-white/20 bg-white/5 overflow-hidden">
-                    <div className="grid md:grid-cols-5 gap-6 p-6">
-                      {/* Video Player - Left Side (60%) */}
-                      <div className="md:col-span-3">
-                        {actualVideoFilename ? (
-                          <div>
-                            <h3 className="text-sm font-semibold mb-3 opacity-70 uppercase tracking-wide">Video Preview</h3>
-                            {renderVideoPlayer(videoFilename, ts)}
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-center aspect-video bg-black/20 rounded-lg border border-white/10">
-                            <div className="text-center">
-                              {renderThumb(meta.path)}
-                              <p className="text-xs opacity-50 mt-2">Video not available</p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                      
-                      {/* Metadata - Right Side (40%) */}
-                      <div className="md:col-span-2 flex flex-col justify-center space-y-4">
-                        <div>
-                          <h3 className="text-sm font-semibold mb-2 opacity-70 uppercase tracking-wide">Match Details</h3>
-                          <div className="flex flex-wrap items-center gap-2 mb-3">
-                            <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold bg-gradient-to-r from-blue-500/20 to-purple-500/20 border border-blue-400/30">
-                              ⏱️ {tsDisplay}
-                            </span>
-                            {typeof m.score === "number" && (
-                              <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-white/10 border border-white/20">
-                                Score: {m.score.toFixed(3)}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        
-                        <div>
-                          <h3 className="text-sm font-semibold mb-2 opacity-70 uppercase tracking-wide">Description</h3>
-                          <p className="opacity-90 leading-relaxed text-sm">{meta.description || "No description available"}</p>
-                        </div>
-                        
-                        {meta.frame_id && (
-                          <div className="pt-2 border-t border-white/10">
-                            <p className="text-xs opacity-60">Frame ID: {meta.frame_id}</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="grid grid-cols-3 gap-8">
+              {searchMatches.map((m, i) => (
+                <VideoResultCard
+                  key={`${m.id}-${i}`}
+                  match={m}
+                  index={i}
+                  indexName={indexName}
+                  indexToVideoMap={indexToVideoMap}
+                  renderVideoPlayer={renderVideoPlayer}
+                  renderThumb={renderThumb}
+                />
+              ))}
             </div>
           )}
         </section>
