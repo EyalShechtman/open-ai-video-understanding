@@ -97,6 +97,7 @@ export default function Page() {
                 action: "ingest_final",
                 videoFile: files[0]?.name ?? "video",
                 videoId: 1,
+                videoFilename: uploadData.video_path?.split('/').pop() || uploadData.video_path,
                 records: processData.records,
                 summary: processData.summary ?? undefined,
               }),

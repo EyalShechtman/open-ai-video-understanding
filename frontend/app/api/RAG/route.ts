@@ -4,7 +4,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const EMBEDDING_MODEL = "gemini-embedding-001";
 const EMBEDDING_DIMENSION = 768;
-const GENERATION_MODEL = process.env.GEMINI_TEXT_MODEL ?? "gemini-1.5-flash";
+const GENERATION_MODEL = process.env.GEMINI_TEXT_MODEL ?? "gemini-2.5-flash";
 const DEFAULT_INDEX_NAME = process.env.PINECONE_INDEX ?? "video-frames";
 const DEFAULT_NAMESPACE = "frames";
 
@@ -214,6 +214,7 @@ type FinalIngestRequest = {
   indexName?: string | number | null;
   videoFile?: string | null;
   videoId?: string | number;
+  videoFilename?: string | null;
   summary?: string | null;
   skipEnsure?: boolean;
   records?: RustFrameRecord[];
@@ -237,12 +238,12 @@ type OverviewRequestPayload = {
   skipEnsure?: boolean;
 };
 
-function isFinalIngestPayload(payload: RoutePayload | FinalIngestRequest): payload is FinalIngestRequest {
+function isFinalIngestPayload(payload: RoutePayload | FinalIngestRequest | AnalyzeRequestPayload | OverviewRequestPayload): payload is FinalIngestRequest {
   return (payload as any)?.action === "ingest_final";
 }
 
-function isIngestPayload(payload: RoutePayload): payload is IngestRequestPayload {
-  return payload.action === "ingest";
+function isIngestPayload(payload: RoutePayload | AnalyzeRequestPayload | OverviewRequestPayload): payload is IngestRequestPayload {
+  return (payload as any)?.action === "ingest";
 }
 
 function isQueryPayload(payload: RoutePayload | any): payload is QueryRequestPayload {
@@ -290,7 +291,7 @@ export async function GET(request: NextRequest) {
       const indexName = resolveIndexName(requestedIndexName);
       const client = getPineconeClient();
       // Do not try to create here; assume the index exists
-      const stats: any = await client.index(indexName).describeIndexStats({});
+      const stats: any = await client.index(indexName).describeIndexStats();
       const namespaces = Object.keys(stats?.namespaces ?? {});
       return NextResponse.json({ status: "ok", index: indexName, namespaces });
     }
@@ -328,7 +329,7 @@ export async function POST(request: NextRequest) {
 
     // Handle final ingestion: accept records (JSON) and optional summary
     if (isFinalIngestPayload(payload)) {
-      const { indexName: requestedIndexName, videoFile, videoId, summary, skipEnsure } = payload;
+      const { indexName: requestedIndexName, videoFile, videoId, videoFilename, summary, skipEnsure } = payload;
       const indexName = resolveIndexName(requestedIndexName ?? videoFile ?? undefined);
       console.log(`[ingest_final] indexName="${indexName}", skipEnsure=${skipEnsure}`);
       if (!skipEnsure) {
@@ -370,6 +371,7 @@ export async function POST(request: NextRequest) {
           timestamp: frame.timestamp,
           description: frame.description,
           path: frame.path,
+          ...(videoFilename ? { video_filename: videoFilename } : {}),
         },
       }));
 
@@ -527,7 +529,15 @@ export async function POST(request: NextRequest) {
       });
 
       const matches = result.matches ?? [];
-      const context = matches
+      
+      // Sort matches by timestamp to create a chronological timeline
+      const sortedMatches = [...matches].sort((a, b) => {
+        const tsA = (a.metadata as any)?.timestamp ?? 0;
+        const tsB = (b.metadata as any)?.timestamp ?? 0;
+        return tsA - tsB;
+      });
+      
+      const context = sortedMatches
         .map((m, i) => {
           const meta: any = m.metadata ?? {};
           const ts = typeof meta.timestamp === "number" ? `${meta.timestamp.toFixed(1)}s` : String(meta.timestamp ?? "");
@@ -535,7 +545,24 @@ export async function POST(request: NextRequest) {
         })
         .join("\n\n");
 
-      const prompt = `You are a helpful assistant. Answer the user question using ONLY the provided frames context. Cite 2-3 most relevant frames by frame_id and timestamp in square brackets at the end. If the answer is unknown or unclear, say you cannot determine from the frames.\n\nQuestion: ${question}\n\nFrames Context:\n${context}`;
+      const prompt = `You are a video analysis assistant. Your task is to answer questions about a video by analyzing frames in CHRONOLOGICAL ORDER.
+
+IMPORTANT INSTRUCTIONS:
+1. The frames below are sorted by timestamp - use this to understand the SEQUENCE and TIMELINE of events
+2. Connect the frames together to build a coherent narrative of what happened over time
+3. Pay close attention to WHEN things happen (timestamps) to understand cause and effect
+4. Infer relationships between frames based on their temporal proximity
+5. If events happen across multiple frames, explain the progression and timeline
+6. Use ONLY the provided frames - do not make up information
+7. Cite 2-3 most relevant frames by frame_id and timestamp in square brackets (e.g., [frame 5 at 2.5s])
+8. If you cannot determine the answer from the frames, clearly state what information is missing
+
+Question: ${question}
+
+Frames (in chronological order):
+${context}
+
+Remember: Consider how the frames connect temporally to form a complete picture of the events.`;
 
       const model = getGenerationModel();
       const resp = await model.generateContent({
@@ -551,7 +578,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         status: "ok",
         answer,
-        citations: (matches || []).map((m) => ({
+        citations: (sortedMatches || []).map((m) => ({
           id: m.id,
           score: m.score,
           metadata: m.metadata,

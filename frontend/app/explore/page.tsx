@@ -153,11 +153,11 @@ export default function ExplorePage() {
     setAnswer("");
     setCitations([]);
     try {
-      const res = await fetch("/api/RAG", {
+      const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "analyze",
+          // action: "analyze", // no longer required; kept for compatibility if needed
           indexName,
           videoId,
           question: analyzeQ,
@@ -185,6 +185,46 @@ export default function ExplorePage() {
         alt={path}
         className="w-24 h-16 object-cover rounded-md border border-white/20"
       />
+    );
+  };
+
+  // Map index names to video files (fallback for data uploaded before video_filename was added)
+  // Each index corresponds to one video
+  const indexToVideoMap: Record<string, string> = {
+    'democrash-mp4': '1761553398785_DemoCrash.mp4',
+    'crashdemo-mp4': '1761542252139_crashDemo.mp4',
+    'video-frames': 'video.mp4',
+    // Add more mappings as needed for existing indexes
+  };
+
+  const renderVideoPlayer = (videoFilename?: string, timestamp?: number) => {
+    // Use video_filename from metadata if available, otherwise fall back to index mapping
+    const actualFilename = videoFilename || indexToVideoMap[indexName.toLowerCase()];
+    
+    if (!actualFilename) {
+      // No video available for this index
+      return null;
+    }
+    
+    const videoUrl = `${BACKEND_URL}/data/${actualFilename}`;
+    
+    return (
+      <div className="w-full aspect-video bg-black rounded-lg overflow-hidden border border-white/20">
+        <video
+          controls
+          preload="metadata"
+          className="w-full h-full"
+          onLoadedMetadata={(e) => {
+            const video = e.currentTarget;
+            if (timestamp !== undefined) {
+              video.currentTime = timestamp;
+            }
+          }}
+        >
+          <source src={videoUrl} type="video/mp4" />
+          Your browser does not support the video tag.
+        </video>
+      </div>
     );
   };
 
@@ -324,32 +364,62 @@ export default function ExplorePage() {
           </form>
 
           {searchMatches.length > 0 && (
-            <div className="grid gap-3">
+            <div className="space-y-6">
               {searchMatches.map((m, i) => {
                 const meta: any = m.metadata || {};
-                const ts = typeof meta.timestamp === "number" ? `${meta.timestamp.toFixed(1)}s` : "";
+                const ts = typeof meta.timestamp === "number" ? meta.timestamp : 0;
+                const tsDisplay = typeof meta.timestamp === "number" ? `${meta.timestamp.toFixed(1)}s` : "";
+                const videoFilename = meta.video_filename;
+                // Check if we have a video available (from metadata or fallback mapping)
+                const actualVideoFilename = videoFilename || indexToVideoMap[indexName.toLowerCase()];
+                
                 return (
-                  <div key={`${m.id}-${i}`} className="flex items-start gap-4 p-3 rounded-lg border border-white/20 bg-white/5">
-                    {renderThumb(meta.path)}
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-3 text-sm mb-1">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-white/10 border border-white/20">
-                          {ts}
-                        </span>
-                        {typeof m.score === "number" && (
-                          <span className="opacity-70">score {m.score.toFixed(3)}</span>
+                  <div key={`${m.id}-${i}`} className="rounded-xl border border-white/20 bg-white/5 overflow-hidden">
+                    <div className="grid md:grid-cols-5 gap-6 p-6">
+                      {/* Video Player - Left Side (60%) */}
+                      <div className="md:col-span-3">
+                        {actualVideoFilename ? (
+                          <div>
+                            <h3 className="text-sm font-semibold mb-3 opacity-70 uppercase tracking-wide">Video Preview</h3>
+                            {renderVideoPlayer(videoFilename, ts)}
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-center aspect-video bg-black/20 rounded-lg border border-white/10">
+                            <div className="text-center">
+                              {renderThumb(meta.path)}
+                              <p className="text-xs opacity-50 mt-2">Video not available</p>
+                            </div>
+                          </div>
                         )}
                       </div>
-                      <p className="opacity-90 whitespace-pre-wrap">{meta.description}</p>
-                      {meta.path && (
-                        <a
-                          href={`${BACKEND_URL}/${meta.path.startsWith("/") ? meta.path.slice(1) : meta.path}`}
-                          target="_blank"
-                          className="text-xs underline opacity-70"
-                        >
-                          {meta.path}
-                        </a>
-                      )}
+                      
+                      {/* Metadata - Right Side (40%) */}
+                      <div className="md:col-span-2 flex flex-col justify-center space-y-4">
+                        <div>
+                          <h3 className="text-sm font-semibold mb-2 opacity-70 uppercase tracking-wide">Match Details</h3>
+                          <div className="flex flex-wrap items-center gap-2 mb-3">
+                            <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold bg-gradient-to-r from-blue-500/20 to-purple-500/20 border border-blue-400/30">
+                              ⏱️ {tsDisplay}
+                            </span>
+                            {typeof m.score === "number" && (
+                              <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-white/10 border border-white/20">
+                                Score: {m.score.toFixed(3)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <h3 className="text-sm font-semibold mb-2 opacity-70 uppercase tracking-wide">Description</h3>
+                          <p className="opacity-90 leading-relaxed text-sm">{meta.description || "No description available"}</p>
+                        </div>
+                        
+                        {meta.frame_id && (
+                          <div className="pt-2 border-t border-white/10">
+                            <p className="text-xs opacity-60">Frame ID: {meta.frame_id}</p>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
@@ -389,33 +459,63 @@ export default function ExplorePage() {
 
           {citations.length > 0 && (
             <div>
-              <h3 className="font-semibold mb-2">Citations</h3>
-              <div className="grid gap-3">
+              <h3 className="font-semibold mb-3">Citations</h3>
+              <div className="space-y-6">
                 {citations.map((c, i) => {
                   const meta: any = c.metadata || {};
-                  const ts = typeof meta.timestamp === "number" ? `${meta.timestamp.toFixed(1)}s` : "";
+                  const ts = typeof meta.timestamp === "number" ? meta.timestamp : 0;
+                  const tsDisplay = typeof meta.timestamp === "number" ? `${meta.timestamp.toFixed(1)}s` : "";
+                  const videoFilename = meta.video_filename;
+                  // Check if we have a video available (from metadata or fallback mapping)
+                  const actualVideoFilename = videoFilename || indexToVideoMap[indexName.toLowerCase()];
+                  
                   return (
-                    <div key={`${c.id}-${i}`} className="flex items-start gap-4 p-3 rounded-lg border border-white/20 bg-white/5">
-                      {renderThumb(meta.path)}
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-3 text-sm mb-1">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-white/10 border border-white/20">
-                            {ts}
-                          </span>
-                          {typeof c.score === "number" && (
-                            <span className="opacity-70">score {c.score.toFixed(3)}</span>
+                    <div key={`${c.id}-${i}`} className="rounded-xl border border-white/20 bg-white/5 overflow-hidden">
+                      <div className="grid md:grid-cols-5 gap-6 p-6">
+                        {/* Video Player - Left Side (60%) */}
+                        <div className="md:col-span-3">
+                          {actualVideoFilename ? (
+                            <div>
+                              <h3 className="text-sm font-semibold mb-3 opacity-70 uppercase tracking-wide">Video Preview</h3>
+                              {renderVideoPlayer(videoFilename, ts)}
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-center aspect-video bg-black/20 rounded-lg border border-white/10">
+                              <div className="text-center">
+                                {renderThumb(meta.path)}
+                                <p className="text-xs opacity-50 mt-2">Video not available</p>
+                              </div>
+                            </div>
                           )}
                         </div>
-                        <p className="opacity-90 whitespace-pre-wrap">{meta.description}</p>
-                        {meta.path && (
-                          <a
-                            href={`${BACKEND_URL}/${meta.path.startsWith("/") ? meta.path.slice(1) : meta.path}`}
-                            target="_blank"
-                            className="text-xs underline opacity-70"
-                          >
-                            {meta.path}
-                          </a>
-                        )}
+                        
+                        {/* Metadata - Right Side (40%) */}
+                        <div className="md:col-span-2 flex flex-col justify-center space-y-4">
+                          <div>
+                            <h3 className="text-sm font-semibold mb-2 opacity-70 uppercase tracking-wide">Citation {i + 1}</h3>
+                            <div className="flex flex-wrap items-center gap-2 mb-3">
+                              <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold bg-gradient-to-r from-blue-500/20 to-purple-500/20 border border-blue-400/30">
+                                ⏱️ {tsDisplay}
+                              </span>
+                              {typeof c.score === "number" && (
+                                <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-white/10 border border-white/20">
+                                  Score: {c.score.toFixed(3)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          
+                          <div>
+                            <h3 className="text-sm font-semibold mb-2 opacity-70 uppercase tracking-wide">Description</h3>
+                            <p className="opacity-90 leading-relaxed text-sm">{meta.description || "No description available"}</p>
+                          </div>
+                          
+                          {meta.frame_id && (
+                            <div className="pt-2 border-t border-white/10">
+                              <p className="text-xs opacity-60">Frame ID: {meta.frame_id}</p>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
