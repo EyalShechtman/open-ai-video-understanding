@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { Search, Send } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
+import { ResponseStream } from "@/components/ui/response-stream";
 
 type PCIndex = { name: string };
 type Namespace = string;
@@ -36,12 +37,14 @@ function SearchInput({
   value, 
   onChange, 
   onSubmit, 
-  isLoading 
+  isLoading,
+  placeholder = "Ask a question (e.g., what color was the Jeep?)"
 }: { 
   value: string; 
   onChange: (value: string) => void; 
   onSubmit: () => void;
   isLoading: boolean;
+  placeholder?: string;
 }) {
   const [isActive, setIsActive] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -96,7 +99,7 @@ function SearchInput({
             value={value}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask a question (e.g., what color was the Jeep?)"
+            placeholder={placeholder}
             className="flex-1 border-0 outline-0 rounded-md py-2 px-2 text-base bg-transparent text-black dark:text-white placeholder-gray-400"
             onFocus={handleActivate}
           />
@@ -424,7 +427,7 @@ export default function ExplorePage() {
 
   return (
     <main className="w-full py-10 px-12">
-      <h1 className="text-3xl font-bold mb-6">Explore</h1>
+      <h1 className="text-3xl font-bold mb-6 text-white dark:text-white">Explore</h1>
 
       {/* Controls */}
       <div className={glassPanel("p-4 mb-6")}>        
@@ -578,95 +581,58 @@ export default function ExplorePage() {
 
       {activeTab === "analyze" && (
         <section className={glassPanel("p-6 space-y-6")}>          
-          <h2 className="text-xl font-semibold">Analyze</h2>
-          <form onSubmit={runAnalyze} className="grid gap-3">
-            <textarea
-              value={analyzeQ}
-              onChange={(e) => setAnalyzeQ(e.target.value)}
-              placeholder="Ask a deeper question. We will answer with citations."
-              className="min-h-[120px] bg-transparent border border-white/20 rounded-md px-3 py-2"
-            />
-            <div>
-              <button
-                type="submit"
-                disabled={analyzeLoading}
-                className="px-4 py-2 rounded-md border bg-black text-white dark:bg-white dark:text-black"
-              >
-                {analyzeLoading ? "Analyzing..." : "Analyze"}
-              </button>
-            </div>
-          </form>
+          <div className="text-center space-y-2 mb-6">
+            <h2 className="text-3xl font-bold">Ask Questions</h2>
+            <p className="text-sm opacity-60 max-w-2xl mx-auto mt-2">
+              Ask questions about the video content and get comprehensive answers with relevant video citations.
+            </p>
+          </div>
+          
+          <SearchInput
+            value={analyzeQ}
+            onChange={setAnalyzeQ}
+            onSubmit={() => {
+              if (analyzeQ.trim()) {
+                runAnalyze({ preventDefault: () => {} } as React.FormEvent);
+              }
+            }}
+            isLoading={analyzeLoading}
+            placeholder="Ask a question (e.g., What sequence of events led to the crash?)"
+          />
 
           {answer && (
-            <div className="rounded-xl border border-white/20 p-4 bg-white/5">
-              <h3 className="font-semibold mb-2">Answer</h3>
-              <p className="opacity-90 whitespace-pre-wrap">{answer}</p>
+            <div className="rounded-xl bg-white p-6 space-y-4 shadow-lg max-w-4xl mx-auto">
+              <div className="flex items-center gap-3 pb-3 border-b border-gray-200">
+                <h3 className="text-lg font-bold text-black">Answer</h3>
+              </div>
+              <div className="bg-white rounded-lg p-6">
+                <ResponseStream
+                  textStream={answer}
+                  mode="fade"
+                  speed={80}
+                  className="text-base leading-relaxed whitespace-pre-wrap text-black font-normal"
+                />
+              </div>
             </div>
           )}
 
           {citations.length > 0 && (
-            <div>
-              <h3 className="font-semibold mb-3">Citations</h3>
-              <div className="space-y-6">
-                {citations.map((c, i) => {
-                  const meta: any = c.metadata || {};
-                  const ts = typeof meta.timestamp === "number" ? meta.timestamp : 0;
-                  const tsDisplay = typeof meta.timestamp === "number" ? `${meta.timestamp.toFixed(1)}s` : "";
-                  const videoFilename = meta.video_filename;
-                  // Check if we have a video available (from metadata or fallback mapping)
-                  const actualVideoFilename = videoFilename || indexToVideoMap[indexName.toLowerCase()];
-                  
-                  return (
-                    <div key={`${c.id}-${i}`} className="rounded-xl border border-white/20 bg-white/5 overflow-hidden">
-                      <div className="grid md:grid-cols-5 gap-6 p-6">
-                        {/* Video Player - Left Side (60%) */}
-                        <div className="md:col-span-3">
-                          {actualVideoFilename ? (
-                            <div>
-                              <h3 className="text-sm font-semibold mb-3 opacity-70 uppercase tracking-wide">Video Preview</h3>
-                              {renderVideoPlayer(videoFilename, ts)}
-                            </div>
-                          ) : (
-                            <div className="flex items-center justify-center aspect-video bg-black/20 rounded-lg border border-white/10">
-                              <div className="text-center">
-                                {renderThumb(meta.path)}
-                                <p className="text-xs opacity-50 mt-2">Video not available</p>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                        
-                        {/* Metadata - Right Side (40%) */}
-                        <div className="md:col-span-2 flex flex-col justify-center space-y-4">
-                          <div>
-                            <h3 className="text-sm font-semibold mb-2 opacity-70 uppercase tracking-wide">Citation {i + 1}</h3>
-                            <div className="flex flex-wrap items-center gap-2 mb-3">
-                              <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-semibold bg-gradient-to-r from-blue-500/20 to-purple-500/20 border border-blue-400/30">
-                                ⏱️ {tsDisplay}
-                              </span>
-                              {typeof c.score === "number" && (
-                                <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-white/10 border border-white/20">
-                                  Score: {c.score.toFixed(3)}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          
-                          <div>
-                            <h3 className="text-sm font-semibold mb-2 opacity-70 uppercase tracking-wide">Description</h3>
-                            <p className="opacity-90 leading-relaxed text-sm">{meta.description || "No description available"}</p>
-                          </div>
-                          
-                          {meta.frame_id && (
-                            <div className="pt-2 border-t border-white/10">
-                              <p className="text-xs opacity-60">Frame ID: {meta.frame_id}</p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+            <div className="space-y-6">
+              <div className="flex items-center gap-3 pb-3 border-b-2 border-white">
+                <h3 className="text-2xl font-bold text-white">Video Citations ({citations.length})</h3>
+              </div>
+              <div className="grid grid-cols-3 gap-8">
+                {citations.map((c, i) => (
+                  <VideoResultCard
+                    key={`${c.id}-${i}`}
+                    match={c}
+                    index={i}
+                    indexName={indexName}
+                    indexToVideoMap={indexToVideoMap}
+                    renderVideoPlayer={renderVideoPlayer}
+                    renderThumb={renderThumb}
+                  />
+                ))}
               </div>
             </div>
           )}
