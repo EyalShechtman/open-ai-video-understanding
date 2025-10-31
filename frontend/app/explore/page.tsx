@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { Search, Send } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
+import { ResponseStream } from "@/components/ui/response-stream";
 
 type PCIndex = { name: string };
 type Namespace = string;
@@ -581,9 +582,9 @@ export default function ExplorePage() {
       {activeTab === "analyze" && (
         <section className={glassPanel("p-6 space-y-6")}>          
           <div className="text-center space-y-2 mb-6">
-            <h2 className="text-3xl font-bold text-white dark:text-white">Analyze</h2>
-            <p className="text-sm opacity-60 max-w-2xl mx-auto mt-2 text-white dark:text-white">
-              Ask deeper questions about the video content. Get comprehensive answers with video citations.
+            <h2 className="text-3xl font-bold">Ask Questions</h2>
+            <p className="text-sm opacity-60 max-w-2xl mx-auto mt-2">
+              Ask questions about the video content and get comprehensive answers with relevant video citations.
             </p>
           </div>
           
@@ -596,26 +597,29 @@ export default function ExplorePage() {
               }
             }}
             isLoading={analyzeLoading}
-            placeholder="Ask a deeper question (e.g., What sequence of events led to the crash?)"
+            placeholder="Ask a question (e.g., What sequence of events led to the crash?)"
           />
 
           {answer && (
-            <div className="rounded-xl border border-white/20 bg-white/5 dark:bg-black/20 p-6 space-y-4">
-              <div className="flex items-center gap-2 mb-2">
-                <h3 className="text-lg font-semibold text-white dark:text-white">Answer</h3>
-                <div className="flex-1 h-px bg-white/20"></div>
+            <div className="rounded-xl bg-white p-6 space-y-4 shadow-lg max-w-4xl mx-auto">
+              <div className="flex items-center gap-3 pb-3 border-b border-gray-200">
+                <h3 className="text-lg font-bold text-black">Answer</h3>
               </div>
-              <div className="bg-black/10 dark:bg-white/5 rounded-lg p-6 border border-white/10">
-                <p className="text-base leading-relaxed whitespace-pre-wrap text-white dark:text-white opacity-95 font-light">{answer}</p>
+              <div className="bg-white rounded-lg p-6">
+                <ResponseStream
+                  textStream={answer}
+                  mode="fade"
+                  speed={80}
+                  className="text-base leading-relaxed whitespace-pre-wrap text-black font-normal"
+                />
               </div>
             </div>
           )}
 
           {citations.length > 0 && (
             <div className="space-y-6">
-              <div className="flex items-center gap-2 mb-4">
-                <h3 className="text-lg font-semibold text-white dark:text-white">Video Citations ({citations.length})</h3>
-                <div className="flex-1 h-px bg-white/20"></div>
+              <div className="flex items-center gap-3 pb-3 border-b-2 border-white">
+                <h3 className="text-2xl font-bold text-white">Video Citations ({citations.length})</h3>
               </div>
               <div className="grid grid-cols-3 gap-8">
                 {citations.map((c, i) => (
