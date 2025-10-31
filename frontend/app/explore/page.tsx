@@ -610,32 +610,56 @@ export default function ExplorePage() {
                   textStream={answer}
                   mode="fade"
                   speed={80}
-                  className="text-base leading-relaxed whitespace-pre-wrap text-black font-normal"
+                  markdown={true}
+                  className="text-base leading-relaxed text-black font-normal"
                 />
               </div>
             </div>
           )}
 
-          {citations.length > 0 && (
-            <div className="space-y-6">
-              <div className="flex items-center gap-3 pb-3 border-b-2 border-white">
-                <h3 className="text-2xl font-bold text-white">Video Citations ({citations.length})</h3>
+          {citations.length > 0 && (() => {
+            // Extract frame references from the answer
+            // Looking for patterns like [id=15, t=7.5s] or [id=16, t=8.0s]
+            const frameReferences = new Set<string>();
+            const framePattern = /\[id=(\d+),\s*t=[\d.]+s\]/g;
+            let match;
+            while ((match = framePattern.exec(answer)) !== null) {
+              const frameId = match[1];
+              frameReferences.add(frameId);
+            }
+
+            // Filter citations to only show referenced frames by matching frame_id in metadata
+            const relevantCitations = citations.filter((c) => {
+              const meta: any = c.metadata || {};
+              const frameId = String(meta.frame_id);
+              return frameReferences.has(frameId);
+            });
+
+            if (relevantCitations.length === 0) {
+              return null;
+            }
+
+            return (
+              <div className="space-y-6">
+                <div className="flex items-center gap-3 pb-3 border-b-2 border-white">
+                  <h3 className="text-2xl font-bold text-white">Relevant Video Moments ({relevantCitations.length})</h3>
+                </div>
+                <div className="grid grid-cols-3 gap-8">
+                  {relevantCitations.map((c, i) => (
+                    <VideoResultCard
+                      key={`${c.id}-${i}`}
+                      match={c}
+                      index={i}
+                      indexName={indexName}
+                      indexToVideoMap={indexToVideoMap}
+                      renderVideoPlayer={renderVideoPlayer}
+                      renderThumb={renderThumb}
+                    />
+                  ))}
+                </div>
               </div>
-              <div className="grid grid-cols-3 gap-8">
-                {citations.map((c, i) => (
-                  <VideoResultCard
-                    key={`${c.id}-${i}`}
-                    match={c}
-                    index={i}
-                    indexName={indexName}
-                    indexToVideoMap={indexToVideoMap}
-                    renderVideoPlayer={renderVideoPlayer}
-                    renderThumb={renderThumb}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
+            );
+          })()}
         </section>
       )}
     </main>
