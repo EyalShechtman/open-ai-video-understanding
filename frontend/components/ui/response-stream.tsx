@@ -2,6 +2,8 @@
 
 import { cn } from "@/lib/utils"
 import React, { useCallback, useEffect, useRef, useState } from "react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 
 export type Mode = "typewriter" | "fade"
 
@@ -286,6 +288,7 @@ export type ResponseStreamProps = {
   fadeDuration?: number // Custom fade duration in ms (overrides speed)
   segmentDelay?: number // Custom delay between segments in ms (overrides speed)
   characterChunkSize?: number // Custom characters per frame for typewriter mode (overrides speed)
+  markdown?: boolean // Enable markdown rendering
 }
 
 function ResponseStream({
@@ -298,6 +301,7 @@ function ResponseStream({
   fadeDuration,
   segmentDelay,
   characterChunkSize,
+  markdown = false,
 }: ResponseStreamProps) {
   const animationEndRef = useRef<(() => void) | null>(null)
 
@@ -346,11 +350,55 @@ function ResponseStream({
   `
 
   const renderContent = () => {
+    // Helper to wrap content in markdown if enabled
+    const wrapInMarkdown = (content: React.ReactNode) => {
+      if (!markdown || typeof content !== 'string') return content;
+      return (
+        <div className="prose prose-sm max-w-none prose-headings:font-bold prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              p: ({ children }) => <p className="my-2 text-black dark:text-white">{children}</p>,
+              h1: ({ children }) => <h1 className="text-2xl font-bold my-3 text-black dark:text-white">{children}</h1>,
+              h2: ({ children }) => <h2 className="text-xl font-bold my-3 text-black dark:text-white">{children}</h2>,
+              h3: ({ children }) => <h3 className="text-lg font-bold my-2 text-black dark:text-white">{children}</h3>,
+              ul: ({ children }) => <ul className="list-disc pl-6 my-2 text-black dark:text-white">{children}</ul>,
+              ol: ({ children }) => <ol className="list-decimal pl-6 my-2 text-black dark:text-white">{children}</ol>,
+              li: ({ children }) => <li className="my-1 text-black dark:text-white">{children}</li>,
+              strong: ({ children }) => <strong className="font-bold text-black dark:text-white">{children}</strong>,
+              em: ({ children }) => <em className="italic text-black dark:text-white">{children}</em>,
+              code: ({ children, className }) => {
+                const isInline = !className;
+                if (isInline) {
+                  return <code className="bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded text-sm font-mono text-black dark:text-white">{children}</code>;
+                }
+                return <code className={`${className} text-black dark:text-white`}>{children}</code>;
+              },
+              pre: ({ children }) => <pre className="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg overflow-x-auto my-3">{children}</pre>,
+            }}
+          >
+            {content as string}
+          </ReactMarkdown>
+        </div>
+      );
+    };
+
     switch (mode) {
       case "typewriter":
-        return <>{displayedText}</>
+        return wrapInMarkdown(displayedText);
 
       case "fade":
+        if (markdown) {
+          // For fade mode with markdown, render the whole text with markdown
+          return (
+            <>
+              <style>{fadeStyle}</style>
+              <div className="relative fade-segment" style={{ animationDelay: '0ms' }}>
+                {wrapInMarkdown(displayedText)}
+              </div>
+            </>
+          );
+        }
         return (
           <>
             <style>{fadeStyle}</style>
@@ -382,7 +430,7 @@ function ResponseStream({
         )
 
       default:
-        return <>{displayedText}</>
+        return wrapInMarkdown(displayedText);
     }
   }
 
