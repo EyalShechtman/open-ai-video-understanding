@@ -1581,6 +1581,7 @@ dependencies = [
  "base64",
  "chrono",
  "dotenv",
+ "ffmpeg-next",
  "gemini-rust",
  "image",
  "reqwest",
