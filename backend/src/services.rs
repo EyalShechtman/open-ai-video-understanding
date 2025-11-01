@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose, Engine as _};
 use gemini_rust::{Gemini, Model};
-use image::codecs::png::PngEncoder;
+use image::codecs::jpeg::JpegEncoder;
 use image::ImageEncoder;
 use image::{ImageBuffer, Rgb};
 use serde::{Deserialize, Serialize};
@@ -43,7 +43,7 @@ pub async fn send_to_llm(frame_path: PathBuf) -> Result<String> {
 
     info!("Sending frame to Gemini");
 
-    let text = describe_png_bytes(&api_key, model, buffer).await?;
+    let text = describe_jpeg_bytes(&api_key, model, buffer).await?;
     info!("Response received: {}", text);
 
     Ok(text)
@@ -56,6 +56,8 @@ pub struct FrameRecord {
     pub timestamp: f64,
     pub description: String,
     pub path: String, // using file path; can switch to base64 if you prefer
+    #[serde(skip)]
+    pub jpeg_bytes: Option<Vec<u8>>, // Hold in memory during processing, skip serialization
 }
 
 type Sample = (u64, f64, ImageBuffer<Rgb<u8>, Vec<u8>>);
@@ -92,23 +94,23 @@ impl FrameJobContext {
                 .await
                 .context("failed to acquire concurrency permit")?;
 
-            let png_bytes = tokio::task::spawn_blocking(move || encode_png(image))
+            let jpeg_bytes = tokio::task::spawn_blocking(move || encode_jpeg(image))
                 .await
-                .context("PNG encode task panicked")??;
+                .context("JPEG encode task panicked")??;
 
-            let path = format!("data/frame_{:03}.png", frame_id);
-            fs::write(&path, &png_bytes)
-                .await
-                .with_context(|| format!("failed to write frame image to {}", path))?;
-
+            let path = format!("data/frame_{:03}.jpg", frame_id);
+            
+            // Skip disk write during processing - keep in memory
+            // Disk writes will happen after all LLM calls complete
             let description =
-                describe_png_bytes(ctx.api_key.as_ref(), ctx.model, png_bytes).await?;
+                describe_jpeg_bytes(ctx.api_key.as_ref(), ctx.model, jpeg_bytes.clone()).await?;
 
             Ok(FrameRecord {
                 frame_id,
                 timestamp,
                 description,
                 path,
+                jpeg_bytes: Some(jpeg_bytes), // Keep bytes in memory
             })
         });
     }
@@ -123,7 +125,7 @@ struct FrameSelection {
 }
 
 fn load_llm_max_concurrency() -> usize {
-    const DEFAULT: usize = 64;
+    const DEFAULT: usize = 100;
     match env::var("LLM_MAX_CONCURRENCY") {
         Ok(raw) => match raw.parse::<usize>() {
             Ok(value) if value > 0 => value,
@@ -155,18 +157,18 @@ fn resolve_model(model_name: Option<&str>) -> Model {
     }
 }
 
-fn encode_png(image: ImageBuffer<Rgb<u8>, Vec<u8>>) -> Result<Vec<u8>> {
+fn encode_jpeg(image: ImageBuffer<Rgb<u8>, Vec<u8>>) -> Result<Vec<u8>> {
     let width = image.width();
     let height = image.height();
     let raw = image.into_raw();
     let mut buf = Vec::new();
-    let encoder = PngEncoder::new(&mut buf);
+    let encoder = JpegEncoder::new_with_quality(&mut buf, 85);
     encoder.write_image(&raw, width, height, image::ColorType::Rgb8.into())?;
     Ok(buf)
 }
 
-async fn describe_png_bytes(api_key: &str, model: Model, png_bytes: Vec<u8>) -> Result<String> {
-    let b64 = tokio::task::spawn_blocking(move || general_purpose::STANDARD.encode(png_bytes))
+async fn describe_jpeg_bytes(api_key: &str, model: Model, jpeg_bytes: Vec<u8>) -> Result<String> {
+    let b64 = tokio::task::spawn_blocking(move || general_purpose::STANDARD.encode(jpeg_bytes))
         .await
         .context("base64 encode task panicked")?;
 
@@ -175,7 +177,7 @@ async fn describe_png_bytes(api_key: &str, model: Model, png_bytes: Vec<u8>) -> 
     let response = client
         .generate_content()
         .with_user_message("Please describe what you see in this video frame.")
-        .with_inline_data(b64, "image/png")
+        .with_inline_data(b64, "image/jpeg")
         .execute()
         .await?;
 
@@ -253,7 +255,7 @@ pub async fn process_video(video_path: impl Into<PathBuf>) -> Result<Vec<FrameRe
         }
     }
 
-    let mut ref_img = match ref_img {
+    let ref_img = match ref_img {
         Some(img) => img,
         None => return Err(anyhow::anyhow!("No frame found")),
     };
@@ -399,6 +401,28 @@ pub async fn process_video(video_path: impl Into<PathBuf>) -> Result<Vec<FrameRe
     });
 
     info!("Processing complete: {} records", records.len());
+    
+    // Now write all frames to disk in parallel
+    info!("Writing {} frames to disk...", records.len());
+    let mut write_tasks = JoinSet::new();
+    for record in &records {
+        if let Some(bytes) = &record.jpeg_bytes {
+            let path = record.path.clone();
+            let bytes = bytes.clone();
+            write_tasks.spawn(async move {
+                fs::write(&path, &bytes)
+                    .await
+                    .with_context(|| format!("failed to write frame to {}", path))
+            });
+        }
+    }
+    
+    // Wait for all writes to complete
+    while let Some(result) = write_tasks.join_next().await {
+        result.context("disk write task join error")??;
+    }
+    info!("All frames written to disk");
+    
     println!("{}", serde_json::to_string_pretty(&records)?);
     Ok(records)
 }
