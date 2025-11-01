@@ -3,7 +3,7 @@ import { Pinecone } from "@pinecone-database/pinecone";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const EMBEDDING_MODEL = "gemini-embedding-001";
-const EMBEDDING_DIMENSION = 768;
+const EMBEDDING_DIMENSION = 3072; // gemini-embedding-001 supports 768, 1536, or 3072
 const GENERATION_MODEL = process.env.GEMINI_TEXT_MODEL ?? "gemini-2.5-flash";
 const DEFAULT_INDEX_NAME = process.env.PINECONE_INDEX ?? "video-frames";
 const DEFAULT_NAMESPACE = "frames";
@@ -111,7 +111,9 @@ async function embedTexts(texts: string[]): Promise<number[][]> {
         role: "user",
         parts: [{ text: text ?? "" }],
       },
-    });
+      taskType: "RETRIEVAL_DOCUMENT" as any,
+      outputDimensionality: EMBEDDING_DIMENSION,
+    } as any);
     const values = response.embedding?.values;
     if (!values?.length) {
       throw new Error("Gemini did not return an embedding vector.");
@@ -318,6 +320,45 @@ export async function GET(request: NextRequest) {
   }
 }
 
+export async function DELETE(request: NextRequest) {
+  try {
+    requireClients();
+    const requestedIndexName = request.nextUrl.searchParams.get("indexName");
+    
+    if (!requestedIndexName) {
+      return NextResponse.json(
+        { status: "error", message: "indexName is required to delete an index" },
+        { status: 400 }
+      );
+    }
+    
+    const indexName = resolveIndexName(requestedIndexName);
+    const client = getPineconeClient();
+    
+    console.log(`Deleting Pinecone index: ${indexName}`);
+    await client.deleteIndex(indexName);
+    
+    // Clear from cache
+    indexInitPromises.delete(indexName);
+    
+    return NextResponse.json({
+      status: "ok",
+      message: `Index "${indexName}" deleted successfully`,
+      deletedIndex: indexName,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unexpected error occurred.";
+    console.error('Delete index error:', error);
+    return NextResponse.json(
+      { status: "error", message },
+      {
+        status: 500,
+      }
+    );
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     requireClients();
@@ -390,18 +431,16 @@ export async function POST(request: NextRequest) {
         } as any);
       }
 
-      // Optional manifest metadata for quick overview lookups (limits size)
+      // Optional manifest metadata for quick overview lookups
+      // Note: Pinecone metadata only supports strings, numbers, booleans, and arrays of strings
       try {
         const manifestMeta = {
           video_id: videoId?.toString() ?? "1",
           manifest: true,
           count: frames.length,
-          // Store a compact slice of frames (avoid oversized metadata)
-          frames: frames.slice(0, 200).map((f) => ({
-            frame_id: f.frameId,
-            timestamp: f.timestamp,
-            path: f.path,
-          })),
+          first_timestamp: frames[0]?.timestamp ?? 0,
+          last_timestamp: frames[frames.length - 1]?.timestamp ?? 0,
+          ...(videoFilename ? { video_filename: videoFilename } : {}),
         } as any;
         const [manVec] = await embedTexts([`manifest video ${videoId ?? "1"}`]);
         extraVectors.push({
