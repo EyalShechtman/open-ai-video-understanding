@@ -48,14 +48,16 @@ struct FrameJobContext {
     api_key: Arc<String>,
     model: Model,
     semaphore: Arc<Semaphore>,
+    video_id: Arc<String>, // Unique identifier for this video
 }
 
 impl FrameJobContext {
-    fn new(api_key: String, model: Model, max_concurrency: usize) -> Self {
+    fn new(api_key: String, model: Model, max_concurrency: usize, video_id: String) -> Self {
         Self {
             api_key: Arc::new(api_key),
             model,
             semaphore: Arc::new(Semaphore::new(max_concurrency.max(1))),
+            video_id: Arc::new(video_id),
         }
     }
 
@@ -78,7 +80,8 @@ impl FrameJobContext {
                 .await
                 .context("JPEG encode task panicked")??;
 
-            let path = format!("data/frame_{:03}.jpg", frame_id);
+            // Use video_id to create unique frame paths per video
+            let path = format!("data/{}_frame_{:03}.jpg", ctx.video_id, frame_id);
             
             // Skip disk write during processing - keep in memory
             // Disk writes will happen after all LLM calls complete
@@ -150,7 +153,7 @@ async fn describe_jpeg_bytes(api_key: &str, model: Model, jpeg_bytes: Vec<u8>) -
 
     let response = client
         .generate_content()
-        .with_user_message("Please describe what you see in this video frame.")
+        .with_user_message("Please describe what you see in this video frame with extremely detailed description try to understand the context of the frames. Make speculative guesses about what might be happening based on the frame!")
         .with_inline_data(b64, "image/jpeg")
         .execute()
         .await?;
@@ -168,7 +171,7 @@ pub async fn summarize_records(records: &[FrameRecord]) -> Result<String> {
 
     // Build a compact transcript
     let mut transcript = String::with_capacity(1024);
-    transcript.push_str("Summarize the video in 2-3 sentences.\n\nFrames:\n");
+    transcript.push_str("Summarize the video in detail description, should be 3-5 sentences.\n\nFrames:\n. Based on all the frmaes, try to keep a story line and explain what happened in the video. Describe the story not the specific details.");
     for r in records {
         // Keep to one line per frame
         use std::fmt::Write as _;
@@ -197,11 +200,20 @@ pub async fn process_video(video_path: impl Into<PathBuf>) -> Result<Vec<FrameRe
         .await
         .context("failed to ensure data directory exists")?;
 
+    // Extract video ID from the filename (e.g., "1761542252139_crashDemo.mp4" -> "1761542252139_crashDemo")
+    let video_id = file_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+    
+    info!("Processing video with ID: {}", video_id);
+
     let api_key = env::var("GOOGLE_API_KEY")?;
     let model_name = env::var("GEMINI_MODEL").ok();
     let model = resolve_model(model_name.as_deref());
     let max_concurrency = load_llm_max_concurrency();
-    let job_ctx = FrameJobContext::new(api_key, model, max_concurrency);
+    let job_ctx = FrameJobContext::new(api_key, model, max_concurrency, video_id);
     let mut tasks: JoinSet<Result<FrameRecord>> = JoinSet::new();
 
     // Run decode + selection in an isolated scope so ffmpeg types are dropped before awaits
@@ -283,7 +295,7 @@ pub async fn process_video(video_path: impl Into<PathBuf>) -> Result<Vec<FrameRe
         let mut first_done = false;
 
         // Streaming pairwise selection state
-        let mut next_sample = 0.5_f64;
+        let mut next_sample = 0.25_f64;
         let mut next_id = 1_u64;
         let mut frames_seen: u64 = 0;
         let mut last_ts: f64 = 0.0;
@@ -389,7 +401,7 @@ pub async fn process_video(video_path: impl Into<PathBuf>) -> Result<Vec<FrameRe
 
                         info!("Sampled id={} at ~{:.3}s", next_id, next_sample);
                         next_id += 1;
-                        next_sample += 0.5;
+                        next_sample += 0.25;
                     }
                 }
             }

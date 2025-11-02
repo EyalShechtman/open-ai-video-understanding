@@ -1,9 +1,10 @@
 "use client";
 import React, { useEffect, useMemo, useState, useRef } from "react";
-import { useSearchParams, useRouter, usePathname } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Search, Send } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ResponseStream } from "@/components/ui/response-stream";
+import { JollySelect, SelectItem } from "@/components/ui/select";
 
 type PCIndex = { name: string };
 type Namespace = string;
@@ -12,15 +13,6 @@ type Match = {
   id?: string;
   score?: number;
   metadata?: any;
-};
-
-type OverviewFrame = {
-  id?: string;
-  score?: number;
-  frame_id?: number | string;
-  timestamp?: number;
-  description?: string;
-  path?: string;
 };
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
@@ -229,9 +221,14 @@ function VideoResultCard({
 export default function ExplorePage() {
   const params = useSearchParams();
   const router = useRouter();
-  const pathname = usePathname();
-  const tabParam = (params.get("tab") || "overview").toLowerCase();
-  const activeTab = (tabParam === "search" || tabParam === "analyze") ? (tabParam as any) : "overview";
+  const tabParam = (params.get("tab") || "search").toLowerCase();
+  const activeTab: "search" | "analyze" = tabParam === "analyze" ? "analyze" : "search";
+
+  useEffect(() => {
+    if (tabParam === "overview") {
+      router.replace("/overview");
+    }
+  }, [tabParam, router]);
 
   const [indexes, setIndexes] = useState<PCIndex[]>([]);
   const [namespaces, setNamespaces] = useState<Namespace[]>([]);
@@ -244,10 +241,21 @@ export default function ExplorePage() {
     [videoId]
   );
 
-  // Overview state
-  const [overviewLoading, setOverviewLoading] = useState(false);
-  const [summary, setSummary] = useState<string | undefined>(undefined);
-  const [overviewFrames, setOverviewFrames] = useState<OverviewFrame[]>([]);
+  const indexOptions = useMemo(
+    () => {
+      const set = new Set([indexName, ...indexes.map((i) => i.name)]);
+      return Array.from(set).map((name) => ({ id: name, label: name }));
+    },
+    [indexes, indexName]
+  );
+
+  const namespaceOptions = useMemo(
+    () => {
+      const set = new Set([namespaceFromVideoId, ...namespaces]);
+      return Array.from(set).map((ns) => ({ id: ns, label: ns }));
+    },
+    [namespaces, namespaceFromVideoId]
+  );
 
   // Search state
   const [searchQ, setSearchQ] = useState("");
@@ -273,6 +281,19 @@ export default function ExplorePage() {
     })();
   }, []);
 
+  // Read deep-link params for indexName and videoId
+  useEffect(() => {
+    const qpIndex = params.get("indexName");
+    const qpVid = params.get("videoId");
+    if (qpIndex && typeof qpIndex === "string") {
+      setIndexName(qpIndex);
+    }
+    if (qpVid && typeof qpVid === "string") {
+      setVideoId(qpVid);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params]);
+
   // Load namespaces when index changes
   useEffect(() => {
     (async () => {
@@ -288,34 +309,6 @@ export default function ExplorePage() {
       } catch {}
     })();
   }, [indexName]);
-
-  const loadOverview = async () => {
-    setOverviewLoading(true);
-    setSummary(undefined);
-    setOverviewFrames([]);
-    try {
-      const res = await fetch("/api/RAG", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "overview",
-          indexName,
-          videoId,
-          skipEnsure: true,
-          topK: 200,
-        }),
-      });
-      const data = await res.json();
-      if (data?.status === "ok") {
-        setSummary(data.summary || undefined);
-        setOverviewFrames(data.frames || []);
-      }
-    } catch (e) {
-      // ignore
-    } finally {
-      setOverviewLoading(false);
-    }
-  };
 
   const runSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -432,115 +425,47 @@ export default function ExplorePage() {
       {/* Controls */}
       <div className={glassPanel("p-4 mb-6")}>        
         <div className="flex flex-wrap items-center gap-4">
-          <div>
-            <label className="block text-xs uppercase tracking-wide mb-1 opacity-70">
-              Index
-            </label>
-            <select
-              value={indexName}
-              onChange={(e) => setIndexName(e.target.value)}
-              className="bg-transparent border border-white/20 rounded-md px-3 py-2"
+          <div className="min-w-56">
+            <JollySelect
+              label="Index"
+              selectedKey={indexName}
+              onSelectionChange={(key) => setIndexName(String(key))}
+              items={indexOptions}
             >
-              {[indexName, ...indexes.map((i) => i.name)]
-                .filter((v, i, a) => a.indexOf(v) === i)
-                .map((name) => (
-                  <option key={name} value={name} className="bg-black text-white">
-                    {name}
-                  </option>
-                ))}
-            </select>
+              {(item: { id: string; label: string }) => (
+                <SelectItem id={item.id}>{item.label}</SelectItem>
+              )}
+            </JollySelect>
           </div>
 
-          <div>
-            <label className="block text-xs uppercase tracking-wide mb-1 opacity-70">
-              Namespace (videoId)
-            </label>
-            <div className="flex items-center gap-2">
-              <select
-                value={namespaceFromVideoId}
-                onChange={(e) => {
-                  const ns = e.target.value;
+          <div className="flex items-end gap-2">
+            <div className="min-w-64">
+              <JollySelect
+                label="Namespace (videoId)"
+                selectedKey={namespaceFromVideoId}
+                onSelectionChange={(key) => {
+                  const ns = String(key);
                   const maybeId = ns.startsWith("video-") ? ns.slice(6) : ns;
                   setVideoId(maybeId);
                 }}
-                className="bg-transparent border border-white/20 rounded-md px-3 py-2"
+                items={namespaceOptions}
               >
-                {[namespaceFromVideoId, ...namespaces]
-                  .filter((v, i, a) => a.indexOf(v) === i)
-                  .map((ns) => (
-                    <option key={ns} value={ns} className="bg-black text-white">
-                      {ns}
-                    </option>
-                  ))}
-              </select>
-              <input
-                value={videoId}
-                onChange={(e) => setVideoId(e.target.value)}
-                className="bg-transparent border border-white/20 rounded-md px-3 py-2 w-28"
-                placeholder="1"
-              />
+                {(item: { id: string; label: string }) => (
+                  <SelectItem id={item.id}>{item.label}</SelectItem>
+                )}
+              </JollySelect>
             </div>
+            <input
+              value={videoId}
+              onChange={(e) => setVideoId(e.target.value)}
+              className="bg-transparent border border-white/20 rounded-md px-3 py-2 w-28"
+              placeholder="1"
+            />
           </div>
         </div>
       </div>
 
       {/* Panels */}
-      {activeTab === "overview" && (
-        <section className={glassPanel("p-6 space-y-6")}>          
-          <div className="flex items-center justify-between gap-4">
-            <h2 className="text-xl font-semibold">Overview</h2>
-            <button
-              onClick={loadOverview}
-              className="px-4 py-2 rounded-md border bg-black text-white dark:bg-white dark:text-black"
-              disabled={overviewLoading}
-            >
-              {overviewLoading ? "Loading..." : "Load Overview"}
-            </button>
-          </div>
-
-          {summary && (
-            <div className="rounded-xl border border-white/20 p-4 bg-white/5">
-              <h3 className="font-semibold mb-2">Video Summary</h3>
-              <p className="opacity-90 leading-relaxed">{summary}</p>
-            </div>
-          )}
-
-          {overviewFrames.length > 0 && (
-            <div>
-              <h3 className="font-semibold mb-3">Frames ({overviewFrames.length})</h3>
-              <div className="grid gap-3">
-                {overviewFrames.map((f) => (
-                  <div
-                    key={f.id}
-                    className="flex items-start gap-4 p-3 rounded-lg border border-white/20 bg-white/5"
-                  >
-                    {renderThumb(f.path)}
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-3 text-sm mb-1">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-white/10 border border-white/20">
-                          {typeof f.timestamp === "number" ? `${f.timestamp.toFixed(1)}s` : ""}
-                        </span>
-                        <span className="opacity-70">frame {String(f.frame_id ?? "")} </span>
-                      </div>
-                      <p className="opacity-90 whitespace-pre-wrap">{f.description}</p>
-                      {f.path && (
-                        <a
-                          href={`${BACKEND_URL}/${f.path.startsWith("/") ? f.path.slice(1) : f.path}`}
-                          target="_blank"
-                          className="text-xs underline opacity-70"
-                        >
-                          {f.path}
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
-      )}
-
       {activeTab === "search" && (
         <section className={glassPanel("p-6 space-y-6")}>          
           <div className="text-center space-y-2 mb-6">

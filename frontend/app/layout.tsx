@@ -23,7 +23,7 @@ export default function RootLayout({
                 <SidebarLink
                   link={{
                     label: "Overview",
-                    href: "/explore?tab=overview",
+                    href: "/overview",
                     icon: <LayoutDashboard size={18} className="shrink-0" />,
                   }}
                 />

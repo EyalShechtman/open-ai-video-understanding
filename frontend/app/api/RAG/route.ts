@@ -298,6 +298,67 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ status: "ok", index: indexName, namespaces });
     }
 
+    // List manifests (per-namespace) for a given index
+    if (request.nextUrl.searchParams.get("manifests")) {
+      if (!requestedIndexName) {
+        return NextResponse.json(
+          { status: "error", message: "indexName is required to list manifests" },
+          { status: 400 }
+        );
+      }
+      const indexName = resolveIndexName(requestedIndexName);
+      const client = getPineconeClient();
+      const stats: any = await client.index(indexName).describeIndexStats();
+      const namespaces = Object.keys(stats?.namespaces ?? {});
+      const results = await Promise.all(
+        namespaces.map(async (ns) => {
+          try {
+            const rec: any = await client
+              .index(indexName)
+              .namespace(ns)
+              .fetch([`${ns}::manifest`]);
+            const v = (rec?.records ?? rec?.vectors ?? rec)?.[`${ns}::manifest`];
+            return v?.metadata ? { namespace: ns, ...v.metadata } : null;
+          } catch {
+            return null;
+          }
+        })
+      );
+      return NextResponse.json({ status: "ok", index: indexName, manifests: results.filter(Boolean) });
+    }
+
+    // Fetch a single manifest for a specific namespace
+    if (request.nextUrl.searchParams.get("manifest")) {
+      if (!requestedIndexName) {
+        return NextResponse.json(
+          { status: "error", message: "indexName is required to fetch manifest" },
+          { status: 400 }
+        );
+      }
+      const namespace = request.nextUrl.searchParams.get("namespace");
+      if (!namespace) {
+        return NextResponse.json(
+          { status: "error", message: "namespace is required to fetch manifest" },
+          { status: 400 }
+        );
+      }
+      const indexName = resolveIndexName(requestedIndexName);
+      const client = getPineconeClient();
+      try {
+        const rec: any = await client
+          .index(indexName)
+          .namespace(namespace)
+          .fetch([`${namespace}::manifest`]);
+        const v = (rec?.records ?? rec?.vectors ?? rec)?.[`${namespace}::manifest`];
+        if (!v?.metadata) {
+          return NextResponse.json({ status: "ok", index: indexName, namespace, manifest: null });
+        }
+        return NextResponse.json({ status: "ok", index: indexName, namespace, manifest: v.metadata });
+      } catch (e) {
+        return NextResponse.json({ status: "ok", index: indexName, namespace, manifest: null });
+      }
+    }
+
     // Default readiness probe for a specific index
     const indexName = resolveIndexName(requestedIndexName);
     await ensureIndexReady(indexName);

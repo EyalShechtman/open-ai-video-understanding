@@ -158,35 +158,6 @@ function requireClients() {
   }
 }
 
-async function loadFrameAsBase64(framePath: string): Promise<string | null> {
-  try {
-    // If the path already starts with "data/", it's relative to backend directory
-    // Otherwise, treat it as relative to backend/data
-    let absolutePath: string;
-    
-    if (path.isAbsolute(framePath)) {
-      absolutePath = framePath;
-    } else if (framePath.startsWith("data/")) {
-      // Path is like "data/frame_027.png", so go to backend directory
-      absolutePath = path.join(process.cwd(), "..", "backend", framePath);
-    } else {
-      // Path is just "frame_027.png", so go to backend/data directory
-      absolutePath = path.join(process.cwd(), "..", "backend", "data", framePath);
-    }
-    
-    const imageBuffer = await fs.readFile(absolutePath);
-    const base64 = imageBuffer.toString("base64");
-    
-    // Determine MIME type from file extension
-    const ext = path.extname(framePath).toLowerCase();
-    const mimeType = ext === ".png" ? "image/png" : "image/jpeg";
-    
-    return `data:${mimeType};base64,${base64}`;
-  } catch (error) {
-    console.error(`Failed to load frame at ${framePath}:`, error);
-    return null;
-  }
-}
 
 type AnalyzeRequestPayload = {
   // action?: "analyze"; // ignored
@@ -239,23 +210,6 @@ export async function POST(request: NextRequest) {
       console.log('Sample match metadata:', JSON.stringify(sortedMatches[0].metadata, null, 2));
     }
 
-    // Load actual frame images
-    const frameImages = await Promise.all(
-      sortedMatches.map(async (m, idx) => {
-        const meta: any = m.metadata ?? {};
-        const framePath = meta.path;
-        if (!framePath) {
-          console.log(`Frame ${idx} has no path in metadata`);
-          return null;
-        }
-        console.log(`Loading frame ${idx}: ${framePath}`);
-        return await loadFrameAsBase64(framePath);
-      })
-    );
-    
-    const loadedCount = frameImages.filter(img => img !== null).length;
-    console.log(`Successfully loaded ${loadedCount}/${frameImages.length} frame images`);
-
     // Build text context with frame descriptions
     const context = sortedMatches
       .map((m, i) => {
@@ -288,41 +242,20 @@ Question: ${question}
 Frames (in chronological order):
 ${context}
 
-Remember: Consider how the frames connect temporally to form a complete picture of the events.`;
+Remember: Consider how the frames connect temporally to form a complete picture of the events.
 
-    // Build the content parts array with interleaved images and descriptions
-    const contentParts: any[] = [{ text: prompt }];
-    
-    // Add each frame image with its context
-    sortedMatches.forEach((m, i) => {
-      const meta: any = m.metadata ?? {};
-      const ts =
-        typeof meta.timestamp === "number"
-          ? `${meta.timestamp.toFixed(1)}s`
-          : String(meta.timestamp ?? "");
-      
-      if (frameImages[i]) {
-        contentParts.push({
-          text: `\n\nFrame #${i + 1} at timestamp ${ts} (${meta.frame_id ?? "?"}):`,
-        });
-        contentParts.push({
-          inlineData: {
-            mimeType: frameImages[i]!.startsWith("data:image/png") ? "image/png" : "image/jpeg",
-            data: frameImages[i]!.split(",")[1], // Remove the data:image/...;base64, prefix
-          },
-        });
-        contentParts.push({
-          text: `Description: ${meta.description ?? "No description available"}`,
-        });
-      }
-    });
+
+ONLY USE THE FRAMES AS A BACKUP CONTEXT IF THE TEXT DESCRIPTION IS NOT ENOUGH TO ANSWER THE QUESTION.
+`;
+
+    // Send just the prompt with text context
 
     const model = getGenerationModel();
     const resp = await model.generateContent({
       contents: [
         {
           role: "user",
-          parts: contentParts,
+          parts: [{ text: prompt }],
         },
       ],
     });

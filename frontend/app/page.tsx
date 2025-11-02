@@ -1,5 +1,6 @@
 "use client";
 import React, { useState } from "react";
+import { useRouter } from "next/navigation";
 import { FileUpload } from "@/components/ui/file-upload";
 
 type SubmitState = "idle" | "ready" | "uploading" | "processing" | "success" | "error";
@@ -19,10 +20,10 @@ interface ProcessVideoResponse {
 }
 
 export default function Page() {
+  const router = useRouter();
   const [files, setFiles] = useState<File[]>([]);
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
   const [feedback, setFeedback] = useState("Attach a video to begin.");
-  const [results, setResults] = useState<ProcessVideoResponse | null>(null);
 
   const hasFiles = files.length > 0;
   const isBusy = submitState === "uploading" || submitState === "processing";
@@ -31,7 +32,6 @@ export default function Page() {
     setFiles(incoming);
     setSubmitState(incoming.length ? "ready" : "idle");
     setFeedback(incoming.length ? "Ready to submit." : "Attach a video to begin.");
-    setResults(null);
   };
 
   const buildFormData = () => {
@@ -50,7 +50,6 @@ export default function Page() {
 
     setSubmitState("uploading");
     setFeedback("Uploading video...");
-    setResults(null);
 
     try {
       // Step 1: Upload the video
@@ -83,7 +82,6 @@ export default function Page() {
       const processData: ProcessVideoResponse = await processResponse.json();
 
       if (processData.status === "ok") {
-        setResults(processData);
         const frameCount = processData.records?.length || 0;
         setFeedback(`Processing complete! Analyzed ${frameCount} frames. Indexing...`);
 
@@ -106,6 +104,21 @@ export default function Page() {
             if (ingestData?.status === "ok") {
               setFeedback(`Done! Indexed ${ingestData.upserted ?? frameCount} vectors to Pinecone.`);
               setSubmitState("success");
+              
+              // Extract index name and video ID from ingest response
+              const indexName = ingestData.index || "video-frames";
+              const videoId = ingestData.videoId || "1";
+              
+              // Clear cache for this video to ensure fresh data
+              const cacheKey = `overview_${indexName}_${videoId}`;
+              try {
+                sessionStorage.removeItem(cacheKey);
+              } catch (e) {
+                console.warn("Failed to clear cache", e);
+              }
+              
+              // Redirect to overview page
+              router.push(`/overview/${encodeURIComponent(indexName)}?videoId=${encodeURIComponent(videoId)}`);
             } else {
               console.error("Ingest error:", ingestData);
               setFeedback("Frames processed but indexing failed. Check server logs.");
@@ -169,72 +182,6 @@ export default function Page() {
           <p className="text-sm text-gray-600 dark:text-gray-300">{feedback}</p>
         </div>
       </form>
-
-      {/* Results Section */}
-      {results && results.status === "ok" && (
-        <div className="mt-12 space-y-8">
-          {/* Summary Section */}
-          {results.summary && (
-            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-900 rounded-xl p-6 border border-blue-200 dark:border-gray-700">
-              <h2 className="text-xl font-bold mb-3 text-gray-900 dark:text-white">
-                Video Summary
-              </h2>
-              <p className="text-gray-700 dark:text-gray-200 leading-relaxed">
-                {results.summary}
-              </p>
-            </div>
-          )}
-
-          {/* Frame Analysis Section */}
-          {results.records && results.records.length > 0 && (
-            <div className="space-y-4">
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-                Frame Analysis ({results.records.length} frames)
-              </h2>
-              <div className="grid gap-4">
-                {results.records.map((record) => (
-                  <div
-                    key={record.frame_id}
-                    className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow"
-                  >
-                    <div className="flex items-start gap-4">
-                      <div className="flex-shrink-0">
-                        <div className="bg-gradient-to-br from-black to-gray-800 text-white rounded-full w-12 h-12 flex items-center justify-center font-bold text-lg">
-                          {record.frame_id}
-                        </div>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-3 mb-2">
-                          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200">
-                            {record.timestamp.toFixed(1)}s
-                          </span>
-                        </div>
-                        <p className="text-gray-700 dark:text-gray-200 leading-relaxed">
-                          {record.description}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Raw JSON Section (Collapsible) */}
-          <details className="bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
-            <summary className="px-6 py-4 cursor-pointer font-semibold text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-              View Raw JSON
-            </summary>
-            <div className="px-6 pb-6">
-              <pre className="bg-white dark:bg-gray-800 p-4 rounded-lg overflow-x-auto text-xs border border-gray-200 dark:border-gray-700">
-                <code className="text-gray-800 dark:text-gray-200">
-                  {JSON.stringify(results, null, 2)}
-                </code>
-              </pre>
-            </div>
-          </details>
-        </div>
-      )}
     </main>
   );
 }
