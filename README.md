@@ -3,7 +3,7 @@
 AI-powered video analysis platform with upload, search, and analysis capabilities for intelligent video understanding.
 
 # Demo: 
-[![Watch the demo](https://img.youtube.com/vi/LovM-rcPZ-I/0.jpg)](https://www.youtube.com/watch?v=LovM-rcPZ-I)
+[![Watch the demo](https://img.youtube.com/vi/LovM-rcPZ-I/0.jpg)](https://www.youtube.com/watch?v=LovM-rcPZ-I&t=55)
 
 
 ## Quick Start
